@@ -4,7 +4,7 @@ export PATH
 #=================================================
 #	System Required: CentOS 7/8,Debian/ubuntu,oraclelinux
 #	Description: BBR+BBRplus+Lotserver
-#	Version: 100.0.1.25
+#	Version: 100.0.2.7
 #	Author: 千影,cx9208,YLX
 #	更新内容及反馈:  https://blog.ylx.me/archives/783.html
 #=================================================
@@ -15,7 +15,7 @@ export PATH
 # SKYBLUE='\033[0;36m'
 # PLAIN='\033[0m'
 
-sh_ver="100.0.1.25"
+sh_ver="100.0.2.7"
 github="raw.githubusercontent.com/ylx2016/Linux-NetSpeed/master"
 
 imgurl=""
@@ -44,7 +44,7 @@ check_github() {
   # 检测域名的可访问性函数
   check_domain() {
     local domain="$1"
-    if ! curl --head --silent --fail "$domain" >/dev/null; then
+    if ! curl --max-time 5 --head --silent --fail "$domain" >/dev/null; then
       echo -e "${Error}无法访问 $domain，请检查网络或者本地DNS 或者访问频率过快而受限"
       github_network=0
     fi
@@ -79,7 +79,7 @@ checkurl() {
   local responseCode=""
 
   while [[ -z "$responseCode" && $retries -lt $maxRetries ]]; do
-    responseCode=$(curl -s -L -m 10 --connect-timeout 5 -o /dev/null -w "%{http_code}" "$url")
+    responseCode=$(curl --max-time 6 -s -L -m 10 --connect-timeout 5 -o /dev/null -w "%{http_code}" "$url")
 
     if [[ -z "$responseCode" ]]; then
       ((retries++))
@@ -95,7 +95,7 @@ checkurl() {
   fi
 }
 
-#cn使用fastgit.org的github加速
+#cn处理github加速
 check_cn() {
   # 检查是否安装了jq命令，如果没有安装则进行安装
   if ! command -v jq >/dev/null 2>&1; then
@@ -120,9 +120,45 @@ check_cn() {
   # 检查国家是否为中国
   country=$(echo "$response" | jq -r '.countryCode')
   if [[ "$country" == "CN" ]]; then
-    echo "https://endpoint.fastgit.org/$1"
+    local suffixes=(
+      "https://gh.con.sh/"
+      "https://gh-proxy.com/"
+      "https://ghp.ci/"
+      "https://gh.m-l.cc/"
+      "https://down.npee.cn/?"
+      "https://mirror.ghproxy.com/"
+      "https://ghps.cc/"
+      "https://gh.api.99988866.xyz/"
+      "https://git.886.be/"
+      "https://hub.gitmirror.com/"
+	  "https://pd.zwc365.com/"
+      "https://gh.ddlc.top/"
+      "https://slink.ltd/"
+      "https://github.moeyy.xyz/"
+      "https://ghproxy.crazypeace.workers.dev/"
+	  "https://gh.h233.eu.org/"
+    )
+
+    # 循环遍历每个后缀并测试组合的链接
+    for suffix in "${suffixes[@]}"; do
+      # 组合后缀和原始链接
+      combined_url="$suffix$1"
+
+      # 使用 curl -I 获取头部信息，提取状态码
+      local response_code=$(curl --max-time 2 -sL -w "%{http_code}" -I "$combined_url" | head -n 1 | awk '{print $2}')
+
+      # 检查响应码是否表示成功 (2xx)
+      if [[ $response_code -ge 200 && $response_code -lt 300 ]]; then
+        echo "$combined_url"
+        return 0 # 返回可用链接，结束函数
+      fi
+    done
+
+  # 如果没有找到有效链接，返回原始链接
   else
     echo "$1"
+    return 1
+
   fi
 }
 
@@ -131,7 +167,7 @@ download_file() {
   url="$1"
   filename="$2"
 
-  wget -N "$url" -O "$filename"
+  wget "$url" -O "$filename"
   status=$?
 
   if [ $status -eq 0 ]; then
@@ -287,8 +323,8 @@ installbbrplus() {
       headurl=$(check_cn $headurl)
       imgurl=$(check_cn $imgurl)
 
-      wget -N -O linux-headers.deb $headurl
-      wget -N -O linux-image.deb $imgurl
+      wget -O linux-headers.deb $headurl
+      wget -O linux-image.deb $imgurl
 
       dpkg -i linux-image.deb
       dpkg -i linux-headers.deb
@@ -477,8 +513,8 @@ installxanmod() {
       headurl=$(check_cn $headurl)
       imgurl=$(check_cn $imgurl)
 
-      wget -N -O kernel-headers-c8.rpm $headurl
-      wget -N -O kernel-c8.rpm $imgurl
+      wget -O kernel-headers-c8.rpm $headurl
+      wget -O kernel-c8.rpm $imgurl
       yum install -y kernel-c8.rpm
       yum install -y kernel-headers-c8.rpm
     fi
@@ -564,8 +600,8 @@ installbbrplusnew() {
         headurl=$(check_cn $headurl)
         imgurl=$(check_cn $imgurl)
 
-        wget -N -O kernel-c7.rpm $headurl
-        wget -N -O kernel-headers-c7.rpm $imgurl
+        wget -O kernel-c7.rpm $headurl
+        wget -O kernel-headers-c7.rpm $imgurl
         yum install -y kernel-c7.rpm
         yum install -y kernel-headers-c7.rpm
       else
@@ -585,8 +621,8 @@ installbbrplusnew() {
         headurl=$(check_cn $headurl)
         imgurl=$(check_cn $imgurl)
 
-        wget -N -O kernel-c8.rpm $headurl
-        wget -N -O kernel-headers-c8.rpm $imgurl
+        wget -O kernel-c8.rpm $headurl
+        wget -O kernel-headers-c8.rpm $imgurl
         yum install -y kernel-c8.rpm
         yum install -y kernel-headers-c8.rpm
       else
@@ -695,8 +731,7 @@ startlotserver() {
   fi
   #bash <(wget -qO- https://git.io/lotServerInstall.sh) install
   #echo | bash <(wget --no-check-certificate -qO- https://raw.githubusercontent.com/1265578519/lotServer/main/lotServerInstall.sh) install
-  # echo | bash <(wget --no-check-certificate -qO- https://raw.githubusercontent.com/fei5seven/lotServer/master/lotServerInstall.sh) install
-  echo | bash <(wget --no-check-certificate -qO- https://raw.githubusercontent.com/wxlost/lotServer/master/lotServerInstall.sh) install
+  echo | bash <(wget --no-check-certificate -qO- https://raw.githubusercontent.com/fei5seven/lotServer/master/lotServerInstall.sh) install
   sed -i '/advinacc/d' /appex/etc/config
   sed -i '/maxmode/d' /appex/etc/config
   echo -e "advinacc=\"1\"
@@ -1173,13 +1208,15 @@ Update_Shell() {
 #切换到不卸载内核版本
 gototcpx() {
   clear
-  wget -O tcpx.sh "https://github.com/ylx2016/Linux-NetSpeed/raw/master/tcpx.sh" && chmod +x tcpx.sh && ./tcpx.sh
+  #wget -O tcpx.sh "https://github.com/ylx2016/Linux-NetSpeed/raw/master/tcpx.sh" && chmod +x tcpx.sh && ./tcpx.sh
+  bash <(wget -qO- https://github.com/ylx2016/Linux-NetSpeed/raw/master/tcpx.sh)
 }
 
 #切换到秋水逸冰BBR安装脚本
 gototeddysun_bbr() {
   clear
-  wget https://github.com/teddysun/across/raw/master/bbr.sh && chmod +x bbr.sh && ./bbr.sh
+  #wget https://github.com/teddysun/across/raw/master/bbr.sh && chmod +x bbr.sh && ./bbr.sh
+  bash <(wget -qO- https://github.com/teddysun/across/raw/master/bbr.sh)
 }
 
 #切换到一键DD安装系统脚本 新手勿入
@@ -1187,7 +1224,8 @@ gotodd() {
   clear
   echo DD使用git.beta.gs的脚本，知悉
   sleep 1.5
-  wget -O NewReinstall.sh https://github.com/fcurrk/reinstall/raw/master/NewReinstall.sh && chmod a+x NewReinstall.sh && bash NewReinstall.sh
+  #wget -O NewReinstall.sh https://github.com/fcurrk/reinstall/raw/master/NewReinstall.sh && chmod a+x NewReinstall.sh && bash NewReinstall.sh
+  bash <(wget -qO- https://github.com/fcurrk/reinstall/raw/master/NewReinstall.sh)
   #wget -qO ~/Network-Reinstall-System-Modify.sh 'https://github.com/ylx2016/reinstall/raw/master/Network-Reinstall-System-Modify.sh' && chmod a+x ~/Network-Reinstall-System-Modify.sh && bash ~/Network-Reinstall-System-Modify.sh -UI_Options
 }
 

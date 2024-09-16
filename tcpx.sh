@@ -4,7 +4,7 @@ export PATH
 #=================================================
 #	System Required: CentOS 7/8,Debian/ubuntu,oraclelinux
 #	Description: BBR+BBRplus+Lotserver
-#	Version: 100.0.1.25
+#	Version: 100.0.2.7
 #	Author: 千影,cx9208,YLX
 #	更新内容及反馈:  https://blog.ylx.me/archives/783.html
 #=================================================
@@ -15,7 +15,7 @@ export PATH
 # SKYBLUE='\033[0;36m'
 # PLAIN='\033[0m'
 
-sh_ver="100.0.1.25"
+sh_ver="100.0.2.7"
 github="raw.githubusercontent.com/ylx2016/Linux-NetSpeed/master"
 
 imgurl=""
@@ -44,7 +44,7 @@ check_github() {
   # 检测域名的可访问性函数
   check_domain() {
     local domain="$1"
-    if ! curl --head --silent --fail "$domain" >/dev/null; then
+    if ! curl --max-time 5 --head --silent --fail "$domain" >/dev/null; then
       echo -e "${Error}无法访问 $domain，请检查网络或者本地DNS 或者访问频率过快而受限"
       github_network=0
     fi
@@ -79,7 +79,7 @@ checkurl() {
   local responseCode=""
 
   while [[ -z "$responseCode" && $retries -lt $maxRetries ]]; do
-    responseCode=$(curl -s -L -m 10 --connect-timeout 5 -o /dev/null -w "%{http_code}" "$url")
+    responseCode=$(curl --max-time 6 -s -L -m 10 --connect-timeout 5 -o /dev/null -w "%{http_code}" "$url")
 
     if [[ -z "$responseCode" ]]; then
       ((retries++))
@@ -95,7 +95,7 @@ checkurl() {
   fi
 }
 
-#cn使用fastgit.org的github加速
+#cn处理github加速
 check_cn() {
   # 检查是否安装了jq命令，如果没有安装则进行安装
   if ! command -v jq >/dev/null 2>&1; then
@@ -120,9 +120,45 @@ check_cn() {
   # 检查国家是否为中国
   country=$(echo "$response" | jq -r '.countryCode')
   if [[ "$country" == "CN" ]]; then
-    echo "https://endpoint.fastgit.org/$1"
+    local suffixes=(
+      "https://gh.con.sh/"
+      "https://gh-proxy.com/"
+      "https://ghp.ci/"
+      "https://gh.m-l.cc/"
+      "https://down.npee.cn/?"
+      "https://mirror.ghproxy.com/"
+      "https://ghps.cc/"
+      "https://gh.api.99988866.xyz/"
+      "https://git.886.be/"
+      "https://hub.gitmirror.com/"
+	  "https://pd.zwc365.com/"
+      "https://gh.ddlc.top/"
+      "https://slink.ltd/"
+      "https://github.moeyy.xyz/"
+      "https://ghproxy.crazypeace.workers.dev/"
+	  "https://gh.h233.eu.org/"
+    )
+
+    # 循环遍历每个后缀并测试组合的链接
+    for suffix in "${suffixes[@]}"; do
+      # 组合后缀和原始链接
+      combined_url="$suffix$1"
+
+      # 使用 curl -I 获取头部信息，提取状态码
+      local response_code=$(curl --max-time 2 -sL -w "%{http_code}" -I "$combined_url" | head -n 1 | awk '{print $2}')
+
+      # 检查响应码是否表示成功 (2xx)
+      if [[ $response_code -ge 200 && $response_code -lt 300 ]]; then
+        echo "$combined_url"
+        return 0 # 返回可用链接，结束函数
+      fi
+    done
+
+  # 如果没有找到有效链接，返回原始链接
   else
     echo "$1"
+    return 1
+
   fi
 }
 
@@ -131,7 +167,7 @@ download_file() {
   url="$1"
   filename="$2"
 
-  wget -N "$url" -O "$filename"
+  wget "$url" -O "$filename"
   status=$?
 
   if [ $status -eq 0 ]; then
@@ -150,6 +186,37 @@ check_empty() {
     echo "$var_value 是空值，退出！"
     exit 1
   fi
+}
+
+#检查磁盘空间
+check_disk_space() {
+    # 检查是否存在 bc 命令
+    if ! command -v bc &> /dev/null; then
+        echo "安装 bc 命令..."
+        # 检查系统类型并安装相应的 bc 包
+        if [ -f /etc/redhat-release ]; then
+            yum install -y bc
+        elif [ -f /etc/debian_version ]; then
+            apt-get update
+            apt-get install -y bc
+        else
+            echo "无法确定系统类型，请手动安装 bc 命令。"
+            return 1
+        fi
+    fi
+
+    # 获取当前磁盘剩余空间
+    available_space=$(df -h / | awk 'NR==2 {print $4}')
+
+    # 移除单位字符，例如"GB"，并将剩余空间转换为数字
+    available_space=$(echo $available_space | sed 's/G//')
+
+    # 如果剩余空间小于等于0，则输出警告信息
+    if [ $(echo "$available_space <= 0" | bc) -eq 1 ]; then
+        echo "警告：磁盘空间已用尽，请勿重启，先清理空间。建议先卸载刚才安装的内核来释放空间，仅供参考。"
+    else
+        echo "当前磁盘剩余空间：$available_space GB"
+    fi
 }
 
 #安装BBR内核
@@ -277,8 +344,8 @@ installbbrplus() {
       headurl=$(check_cn $headurl)
       imgurl=$(check_cn $imgurl)
 
-      wget -N -O linux-headers.deb $headurl
-      wget -N -O linux-image.deb $imgurl
+      wget -O linux-headers.deb $headurl
+      wget -O linux-image.deb $imgurl
 
       dpkg -i linux-image.deb
       dpkg -i linux-headers.deb
@@ -450,8 +517,8 @@ installxanmod() {
       headurl=$(check_cn $headurl)
       imgurl=$(check_cn $imgurl)
 
-      wget -N -O kernel-headers-c8.rpm $headurl
-      wget -N -O kernel-c8.rpm $imgurl
+      wget -O kernel-headers-c8.rpm $headurl
+      wget -O kernel-c8.rpm $imgurl
       yum install -y kernel-c8.rpm
       yum install -y kernel-headers-c8.rpm
     fi
@@ -527,8 +594,8 @@ installbbrplusnew() {
         headurl=$(check_cn $headurl)
         imgurl=$(check_cn $imgurl)
 
-        wget -N -O kernel-c7.rpm $headurl
-        wget -N -O kernel-headers-c7.rpm $imgurl
+        wget -O kernel-c7.rpm $headurl
+        wget -O kernel-headers-c7.rpm $imgurl
         yum install -y kernel-c7.rpm
         yum install -y kernel-headers-c7.rpm
       else
@@ -548,8 +615,8 @@ installbbrplusnew() {
         headurl=$(check_cn $headurl)
         imgurl=$(check_cn $imgurl)
 
-        wget -N -O kernel-c8.rpm $headurl
-        wget -N -O kernel-headers-c8.rpm $imgurl
+        wget -O kernel-c8.rpm $headurl
+        wget -O kernel-headers-c8.rpm $imgurl
         yum install -y kernel-c8.rpm
         yum install -y kernel-headers-c8.rpm
       else
@@ -648,8 +715,7 @@ startlotserver() {
   fi
   #bash <(wget -qO- https://git.io/lotServerInstall.sh) install
   #echo | bash <(wget --no-check-certificate -qO- https://raw.githubusercontent.com/1265578519/lotServer/main/lotServerInstall.sh) install
-  # echo | bash <(wget --no-check-certificate -qO- https://raw.githubusercontent.com/fei5seven/lotServer/master/lotServerInstall.sh) install
-  echo | bash <(wget --no-check-certificate -qO- https://raw.githubusercontent.com/wxlost/lotServer/master/lotServerInstall.sh) install
+  echo | bash <(wget --no-check-certificate -qO- https://raw.githubusercontent.com/fei5seven/lotServer/master/lotServerInstall.sh) install
   sed -i '/advinacc/d' /appex/etc/config
   sed -i '/maxmode/d' /appex/etc/config
   echo -e "advinacc=\"1\"
@@ -1126,13 +1192,15 @@ Update_Shell() {
 #切换到卸载内核版本
 gototcp() {
   clear
-  wget -O tcp.sh "https://github.com/ylx2016/Linux-NetSpeed/raw/master/tcp.sh" && chmod +x tcp.sh && ./tcp.sh
+  #wget -O tcp.sh "https://github.com/ylx2016/Linux-NetSpeed/raw/master/tcp.sh" && chmod +x tcp.sh && ./tcp.sh
+  bash <(wget -qO- https://github.com/ylx2016/Linux-NetSpeed/raw/master/tcp.sh)
 }
 
 #切换到秋水逸冰BBR安装脚本
 gototeddysun_bbr() {
   clear
-  wget https://github.com/teddysun/across/raw/master/bbr.sh && chmod +x bbr.sh && ./bbr.sh
+  #wget https://github.com/teddysun/across/raw/master/bbr.sh && chmod +x bbr.sh && ./bbr.sh
+  bash <(wget -qO- https://github.com/teddysun/across/raw/master/bbr.sh)
 }
 
 #切换到一键DD安装系统脚本 新手勿入
@@ -1140,7 +1208,8 @@ gotodd() {
   clear
   echo DD使用git.beta.gs的脚本，知悉
   sleep 1.5
-  wget -O NewReinstall.sh https://github.com/fcurrk/reinstall/raw/master/NewReinstall.sh && chmod a+x NewReinstall.sh && bash NewReinstall.sh
+  #wget -O NewReinstall.sh https://github.com/fcurrk/reinstall/raw/master/NewReinstall.sh && chmod a+x NewReinstall.sh && bash NewReinstall.sh
+  bash <(wget -qO- https://github.com/fcurrk/reinstall/raw/master/NewReinstall.sh)
   #wget -qO ~/Network-Reinstall-System-Modify.sh 'https://github.com/ylx2016/reinstall/raw/master/Network-Reinstall-System-Modify.sh' && chmod a+x ~/Network-Reinstall-System-Modify.sh && bash ~/Network-Reinstall-System-Modify.sh -UI_Options
 }
 
@@ -1190,7 +1259,7 @@ start_menu() {
  ${Green_font_prefix}9.${Font_color_suffix} 切换到卸载内核版本		${Green_font_prefix}10.${Font_color_suffix} 切换到一键DD系统脚本
  ${Green_font_prefix}1.${Font_color_suffix} 安装 BBR原版内核		${Green_font_prefix}7.${Font_color_suffix} 安装 Zen官方版内核
  ${Green_font_prefix}2.${Font_color_suffix} 安装 BBRplus版内核		${Green_font_prefix}5.${Font_color_suffix} 安装 BBRplus新版内核
- ${Green_font_prefix}3.${Font_color_suffix} 安装 Lotserver(锐速)内核
+ ${Green_font_prefix}3.${Font_color_suffix} 安装 Lotserver(锐速)内核	${Green_font_prefix}36.${Font_color_suffix} 安装 XANMOD官方内核(EDGE)
  ${Green_font_prefix}30.${Font_color_suffix} 安装 官方稳定内核		${Green_font_prefix}31.${Font_color_suffix} 安装 官方最新内核 backports/elrepo
  ${Green_font_prefix}32.${Font_color_suffix} 安装 XANMOD官方内核(main)	${Green_font_prefix}33.${Font_color_suffix} 安装 XANMOD官方内核(LTS)
  ${Green_font_prefix}11.${Font_color_suffix} 使用BBR+FQ加速		${Green_font_prefix}12.${Font_color_suffix} 使用BBR+FQ_PIE加速 
@@ -1242,10 +1311,13 @@ start_menu() {
     check_sys_official_bbr
     ;;
   32)
-    check_sys_official_xanmod
+    check_sys_official_xanmod_main
     ;;
   33)
     check_sys_official_xanmod_lts
+    ;;
+  36)
+    check_sys_official_xanmod_edge
     ;;
   9)
     gototcp
@@ -1455,6 +1527,7 @@ BBR_grub() {
     fi
     #exit 1
   fi
+ check_disk_space
 }
 
 #简单的检查内核
@@ -1897,10 +1970,10 @@ check_sys_official_bbr() {
   echo -e "${Tip} 内核安装完毕，请参考上面的信息检查是否安装成功,默认从排第一的高版本内核启动"
 }
 
-#检查官方xanmod内核并安装
-check_sys_official_xanmod() {
+#检查官方xanmod main内核并安装
+check_sys_official_xanmod_main() {
   check_version
-  wget -N -O check_x86-64_psabi.sh https://dl.xanmod.org/check_x86-64_psabi.sh
+  wget -O check_x86-64_psabi.sh https://dl.xanmod.org/check_x86-64_psabi.sh
   chmod +x check_x86-64_psabi.sh
   cpu_level=$(./check_x86-64_psabi.sh | awk -F 'v' '{print $2}')
   echo -e "CPU supports \033[32m${cpu_level}\033[0m"
@@ -1914,7 +1987,7 @@ check_sys_official_xanmod() {
     apt-get install gnupg gnupg2 gnupg1 sudo -y
     echo 'deb http://deb.xanmod.org releases main' | sudo tee /etc/apt/sources.list.d/xanmod-kernel.list
     wget -qO - https://dl.xanmod.org/gpg.key | sudo apt-key --keyring /etc/apt/trusted.gpg.d/xanmod-kernel.gpg add -
-	if [[ "${cpu_level}" == "4" ]]; then
+    if [[ "${cpu_level}" == "4" ]]; then
       apt update && apt install linux-xanmod-x64v4 -y
     elif [[ "${cpu_level}" == "3" ]]; then
       apt update && apt install linux-xanmod-x64v3 -y
@@ -1934,7 +2007,7 @@ check_sys_official_xanmod() {
 #检查官方xanmod lts内核并安装
 check_sys_official_xanmod_lts() {
   check_version
-  wget -N -O check_x86-64_psabi.sh https://dl.xanmod.org/check_x86-64_psabi.sh
+  wget -O check_x86-64_psabi.sh https://dl.xanmod.org/check_x86-64_psabi.sh
   chmod +x check_x86-64_psabi.sh
   cpu_level=$(./check_x86-64_psabi.sh | awk -F 'v' '{print $2}')
   echo -e "CPU supports \033[32m${cpu_level}\033[0m"
@@ -1948,7 +2021,7 @@ check_sys_official_xanmod_lts() {
     apt-get install gnupg gnupg2 gnupg1 sudo -y
     echo 'deb http://deb.xanmod.org releases main' | sudo tee /etc/apt/sources.list.d/xanmod-kernel.list
     wget -qO - https://dl.xanmod.org/gpg.key | sudo apt-key --keyring /etc/apt/trusted.gpg.d/xanmod-kernel.gpg add -
-	if [[ "${cpu_level}" == "4" ]]; then
+    if [[ "${cpu_level}" == "4" ]]; then
       apt update && apt install linux-xanmod-lts-x64v4 -y
     elif [[ "${cpu_level}" == "3" ]]; then
       apt update && apt install linux-xanmod-lts-x64v3 -y
@@ -1956,6 +2029,40 @@ check_sys_official_xanmod_lts() {
       apt update && apt install linux-xanmod-lts-x64v2 -y
     else
       apt update && apt install linux-xanmod-lts-x64v1 -y
+    fi
+  else
+    echo -e "${Error} 不支持当前系统 ${release} ${version} ${bit} !" && exit 1
+  fi
+
+  BBR_grub
+  echo -e "${Tip} 内核安装完毕，请参考上面的信息检查是否安装成功,默认从排第一的高版本内核启动"
+}
+
+#检查官方xanmod lts内核并安装
+check_sys_official_xanmod_edge() {
+  check_version
+  wget -O check_x86-64_psabi.sh https://dl.xanmod.org/check_x86-64_psabi.sh
+  chmod +x check_x86-64_psabi.sh
+  cpu_level=$(./check_x86-64_psabi.sh | awk -F 'v' '{print $2}')
+  echo -e "CPU supports \033[32m${cpu_level}\033[0m"
+  # exit
+  if [[ ${bit} != "x86_64" ]]; then
+    echo -e "${Error} 不支持x86_64以外的系统 !" && exit 1
+  fi
+
+  if [[ "${OS_type}" == "Debian" ]]; then
+    apt update
+    apt-get install gnupg gnupg2 gnupg1 sudo -y
+    echo 'deb http://deb.xanmod.org releases main' | sudo tee /etc/apt/sources.list.d/xanmod-kernel.list
+    wget -qO - https://dl.xanmod.org/gpg.key | sudo apt-key --keyring /etc/apt/trusted.gpg.d/xanmod-kernel.gpg add -
+    if [[ "${cpu_level}" == "4" ]]; then
+      apt update && apt install linux-xanmod-edge-x64v4 -y
+    elif [[ "${cpu_level}" == "3" ]]; then
+      apt update && apt install linux-xanmod-edge-x64v3 -y
+    elif [[ "${cpu_level}" == "2" ]]; then
+      apt update && apt install linux-xanmod-edge-x64v2 -y
+    else
+      apt update && apt install linux-xanmod-edge-x64v1 -y
     fi
   else
     echo -e "${Error} 不支持当前系统 ${release} ${version} ${bit} !" && exit 1
